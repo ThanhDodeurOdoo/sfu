@@ -1,0 +1,49 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  build-bundle:
+    name: Build client bundle
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get Version from package.json
+      id: get_version
+      run: |
+        VERSION=$(jq -r '.version' package.json)
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+    - name: Add Full SHA to Workflow Summary
+      run: |
+        echo "SHA: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+    - name: Write full SHA description
+      id: vars
+      run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+    - name: Prepare bundle zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: SFU-v${{ env.VERSION }}-client-bundle-${{ steps.vars.outputs.sha_short }}
+        path: ./bundle/
