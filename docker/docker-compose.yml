@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  sfu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: odoo-sfu
+    network_mode: "host"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: sfu-nginx
+    network_mode: "host"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/ssl/stats_auth:/etc/nginx/stats_auth:ro
+    restart: unless-stopped
+    depends_on:
+      - sfu
+    
