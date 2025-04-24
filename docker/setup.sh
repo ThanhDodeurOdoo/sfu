@@ -251,6 +251,7 @@ fi
 chmod 600 nginx/ssl/privkey.pem
 chmod 644 nginx/ssl/fullchain.pem
 
+./generate-nginx-conf.sh ${DOMAIN_NAME}
 
 # Make the open-ports script executable if it exists
 if [ -f open-ports.sh ]; then
