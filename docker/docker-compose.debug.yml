@@ -6,14 +6,13 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: odoo-sfu
+    network_mode: "host"
     environment:
-      - DEBUG=*
-      - NODE_DEBUG=*
       - AUTH_KEY=$(grep AUTH_KEY .env | cut -d= -f2)
       - PUBLIC_IP=51.91.249.43
-    ports:
-      - "8070:8070"
-    # Override the command to get an interactive shell
-    command: /bin/bash
-    tty: true
-    stdin_open: true
+      - RTC_MIN_PORT=40000
+      - RTC_MAX_PORT=49999
+      - PROXY=1
+      - LOG_LEVEL=info
+    restart: unless-stopped
+  
