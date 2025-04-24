@@ -25,88 +25,7 @@ mkdir -p nginx/conf.d nginx/ssl
 # Check if default.conf already exists, create if not
 if [ ! -f nginx/conf.d/default.conf ]; then
     echo -e "${YELLOW}Creating Nginx configuration...${NC}"
-    cat > nginx/conf.d/default.conf << 'EOF'
-# Rate limiting zone
-limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-
-server {
-    listen 80;
-    listen [::]:80;
-    server_name _;
-
-    # Redirect all HTTP traffic to HTTPS
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name _;
-
-    # SSL configuration
-    ssl_certificate /etc/nginx/ssl/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
-    
-    # Enhanced security settings
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384';
-    ssl_prefer_server_ciphers off;
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_tickets off;
-    
-    # HSTS (optional, comment if causing issues)
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    
-    # Additional security headers
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-    
-    # Forward WebSocket connections to SFU
-    location / {
-        proxy_pass http://sfu:8070;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        proxy_buffer_size 128k;
-        proxy_buffers 4 256k;
-        proxy_busy_buffers_size 256k;
-    }
-    
-    # Apply rate limiting only to API endpoints
-    location ~ ^/v[0-9]+/ {
-        proxy_pass http://sfu:8070;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        
-        # Rate limiting
-        limit_req zone=api burst=20 nodelay;
-    }
-    
-    # Health check endpoint without rate limiting
-    location = /v1/noop {
-        proxy_pass http://sfu:8070;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
+    cat nginx/conf.d/default.conf > /dev/null 2>&1 || cp nginx-conf-template.conf nginx/conf.d/default.conf
     echo -e "${GREEN}Nginx configuration created.${NC}"
 fi
 
@@ -120,6 +39,49 @@ validate_ip() {
     fi
     return 0
 }
+
+# Function to validate domain name
+validate_domain() {
+    if [[ ! $1 =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Ask about environment type
+echo -e "\n${YELLOW}Choose your environment type:${NC}"
+echo "1) Development/Testing (self-signed certificates)"
+echo "2) Production (Let's Encrypt certificates)"
+read -p "Enter choice [1-2] (default: 2): " ENV_TYPE
+ENV_TYPE=${ENV_TYPE:-2}
+
+if [ "$ENV_TYPE" = "1" ]; then
+    ENVIRONMENT="development"
+    USE_DOMAIN="false"
+else
+    ENVIRONMENT="production"
+    USE_DOMAIN="true"
+fi
+
+echo "ENVIRONMENT=${ENVIRONMENT}" >> .env.new
+
+# Get domain info if production
+if [ "$USE_DOMAIN" = "true" ]; then
+    read -p "Enter your domain name (e.g., sfu.example.com): " DOMAIN_NAME
+    
+    if [ -z "$DOMAIN_NAME" ]; then
+        handle_error "Domain name is required for production setup."
+    fi
+    
+    if ! validate_domain "$DOMAIN_NAME"; then
+        handle_error "Invalid domain name format."
+    fi
+    
+    echo "DOMAIN_NAME=${DOMAIN_NAME}" >> .env.new
+    
+    # Replace server_name in nginx config
+    sed -i "s/server_name _;/server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};/g" nginx/conf.d/default.conf || echo "Warning: Could not update server_name in Nginx config"
+fi
 
 # Get public IP if not already known
 if [ -f .env ] && grep -q "PUBLIC_IP" .env; then
@@ -149,16 +111,14 @@ if [ -z "$PUBLIC_IP" ]; then
     else
         echo -e "${GREEN}Detected public IP: ${PUBLIC_IP}${NC}"
     fi
-    echo "PUBLIC_IP=${PUBLIC_IP}" >> .env.new
-else
-    echo "PUBLIC_IP=${PUBLIC_IP}" >> .env.new
 fi
+
+echo "PUBLIC_IP=${PUBLIC_IP}" >> .env.new
 
 # Generate AUTH_KEY if not exists
 if [ -f .env ] && grep -q "AUTH_KEY" .env; then
     AUTH_KEY=$(grep AUTH_KEY .env | cut -d= -f2)
     echo -e "${YELLOW}Found existing AUTH_KEY.${NC}"
-    echo "AUTH_KEY=${AUTH_KEY}" >> .env.new
 else
     echo -e "${YELLOW}Generating new AUTH_KEY...${NC}"
     # Check if openssl is available
@@ -172,8 +132,9 @@ else
     fi
     
     echo -e "${GREEN}Generated new AUTH_KEY.${NC}"
-    echo "AUTH_KEY=${AUTH_KEY}" >> .env.new
 fi
+
+echo "AUTH_KEY=${AUTH_KEY}" >> .env.new
 
 # Determine number of CPU cores for NUM_WORKERS
 CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
@@ -182,33 +143,17 @@ echo -e "${YELLOW}System has ${CPU_CORES} CPU cores. Recommended NUM_WORKERS: ${
 
 # Calculate recommended resource limits
 RECOMMENDED_CPU_LIMIT=$(echo "scale=1; ${CPU_CORES} * 0.8" | bc 2>/dev/null || echo "${CPU_CORES}")
-RECOMMENDED_MEMORY=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || echo "1024")
+RECOMMENDED_MEMORY=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' || sysctl -n hw.physmem 2>/dev/null | awk '{print $1/1024/1024}' || echo "1024")
 RECOMMENDED_MEMORY_LIMIT=$(echo "${RECOMMENDED_MEMORY} * 0.7" | bc 2>/dev/null | cut -d. -f1 || echo "1024")
-
-# Ask about environment type
-echo -e "\n${YELLOW}Choose your environment type:${NC}"
-echo "1) Development/Testing (self-signed certificates)"
-echo "2) Production (Let's Encrypt certificates)"
-read -p "Enter choice [1-2] (default: 1): " ENV_TYPE
-ENV_TYPE=${ENV_TYPE:-1}
-
-if [ "$ENV_TYPE" = "1" ]; then
-    ENVIRONMENT="development"
-else
-    ENVIRONMENT="production"
-fi
 
 # Add optional configuration with defaults if not already in .env
 if [ -f .env ]; then
     # Transfer any other existing settings not already handled
-    grep -v "PUBLIC_IP\|AUTH_KEY\|NUM_WORKERS\|CPU_LIMIT\|MEMORY_LIMIT\|ENVIRONMENT" .env >> .env.new
+    grep -v "PUBLIC_IP\|AUTH_KEY\|NUM_WORKERS\|CPU_LIMIT\|MEMORY_LIMIT\|ENVIRONMENT\|DOMAIN_NAME" .env >> .env.new
 fi
 
 # Add default values if not already set
 cat >> .env.new << EOF
-# Environment type
-ENVIRONMENT=${ENVIRONMENT}
-
 # Required connection settings
 PROXY=1
 RTC_MIN_PORT=40000
@@ -248,120 +193,69 @@ echo -e "${GREEN}Configuration saved to .env file.${NC}"
 echo -e "${YELLOW}Important: Keep your AUTH_KEY secure - you'll need it to connect Odoo to this SFU.${NC}"
 echo "AUTH_KEY: ${AUTH_KEY}"
 
-if [ "$ENV_TYPE" = "1" ]; then
-    # Generate a self-signed certificate if it doesn't exist
-    if [ ! -f nginx/ssl/fullchain.pem ] || [ ! -f nginx/ssl/privkey.pem ]; then
-        echo -e "${YELLOW}No SSL certificates found. Generating self-signed certificate...${NC}"
+# SSL Certificate handling
+if [ "$USE_DOMAIN" = "true" ]; then
+    # Check for existing Let's Encrypt certificates
+    CERT_PATH="/etc/letsencrypt/live/${DOMAIN_NAME}"
+    
+    if [ -d "$CERT_PATH" ]; then
+        echo -e "${GREEN}Found Let's Encrypt certificates for ${DOMAIN_NAME}.${NC}"
         
-        # Make the certificate generation script executable and run it
-        chmod +x "$(dirname "$0")/generate-self-signed-cert.sh"
-        ./generate-self-signed-cert.sh || handle_error "Failed to generate SSL certificate."
-    fi
-else
-    echo -e "${YELLOW}For production environments, we recommend using Let's Encrypt for valid SSL certificates.${NC}"
-    echo -e "You will need a domain name pointing to this server."
-    
-    read -p "Enter your domain name (e.g., sfu.example.com): " DOMAIN_NAME
-    
-    if [ -z "$DOMAIN_NAME" ]; then
-        handle_error "Domain name is required for Let's Encrypt setup."
-    fi
-    
-    echo "DOMAIN_NAME=${DOMAIN_NAME}" >> .env
-    
-    echo -e "${YELLOW}Setting up Let's Encrypt:${NC}"
-    
-    # Check if certbot is installed
-    if ! command -v certbot &> /dev/null; then
-        echo -e "Certbot not found. Instructions to install:"
-        echo -e "  1. Install certbot: sudo apt-get update && sudo apt-get install certbot python3-certbot-nginx"
-        echo -e "  2. Get certificate: sudo certbot --nginx -d ${DOMAIN_NAME}"
+        # Create symlinks to Let's Encrypt certificates
+        if [ ! -f nginx/ssl/fullchain.pem ] || [ ! -f nginx/ssl/privkey.pem ]; then
+            echo -e "${YELLOW}Creating symlinks to Let's Encrypt certificates...${NC}"
+            ln -sf ${CERT_PATH}/fullchain.pem nginx/ssl/fullchain.pem
+            ln -sf ${CERT_PATH}/privkey.pem nginx/ssl/privkey.pem
+        fi
+        
+        # Set up renewal hook if it doesn't exist
+        if [ ! -f /etc/letsencrypt/renewal-hooks/post/sfu-nginx-reload.sh ]; then
+            echo -e "${YELLOW}Setting up certificate renewal hook...${NC}"
+            
+            mkdir -p /etc/letsencrypt/renewal-hooks/post
+            cat > /etc/letsencrypt/renewal-hooks/post/sfu-nginx-reload.sh << EOL
+#!/bin/bash
+cp ${CERT_PATH}/fullchain.pem $(pwd)/nginx/ssl/fullchain.pem
+cp ${CERT_PATH}/privkey.pem $(pwd)/nginx/ssl/privkey.pem
+docker restart sfu-nginx
+EOL
+            chmod +x /etc/letsencrypt/renewal-hooks/post/sfu-nginx-reload.sh
+        fi
     else
-        echo -e "Certbot is installed. Run the following to get your certificate:"
-        echo -e "  sudo certbot --nginx -d ${DOMAIN_NAME}"
+        echo -e "${YELLOW}No Let's Encrypt certificates found for ${DOMAIN_NAME}.${NC}"
+        echo -e "You should obtain certificates using certbot:"
+        echo -e "  sudo apt install certbot python3-certbot-nginx"
+        echo -e "  sudo certbot --nginx -d ${DOMAIN_NAME} -d www.${DOMAIN_NAME}"
+        
+        echo -e "${YELLOW}Generating a temporary self-signed certificate until Let's Encrypt is set up...${NC}"
+        
+        # Generate temporary self-signed cert
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout nginx/ssl/privkey.pem \
+            -out nginx/ssl/fullchain.pem \
+            -subj "/CN=${DOMAIN_NAME}/O=Odoo SFU/C=US" \
+            -addext "subjectAltName = DNS:${DOMAIN_NAME}, DNS:www.${DOMAIN_NAME}, IP:${PUBLIC_IP}"
     fi
-    
-    # Generate temporary self-signed cert anyway
-    echo -e "${YELLOW}Generating a temporary self-signed certificate until Let's Encrypt is set up...${NC}"
-    chmod +x "$(dirname "$0")/generate-self-signed-cert.sh"
-    ./generate-self-signed-cert.sh || handle_error "Failed to generate temporary SSL certificate."
-fi
-
-# Make the open-ports script executable
-if [ -f "$(dirname "$0")/open-ports.sh" ]; then
-    chmod +x "$(dirname "$0")/open-ports.sh"
-fi
-
-# Create a backup script
-cat > backup.sh << 'EOF'
-#!/bin/bash
-# Backup script for Odoo SFU
-
-# Load environment variables
-source .env
-
-# Create backup directory if it doesn't exist
-BACKUP_DIR=${BACKUP_DIR:-/var/backups/odoo-sfu}
-mkdir -p $BACKUP_DIR
-
-# Get timestamp
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-
-# Backup the .env file
-cp .env ${BACKUP_DIR}/env_backup_${TIMESTAMP}.txt
-
-# Backup SSL certificates
-tar -czf ${BACKUP_DIR}/ssl_backup_${TIMESTAMP}.tar.gz nginx/ssl
-
-# Backup nginx configuration
-tar -czf ${BACKUP_DIR}/nginx_conf_backup_${TIMESTAMP}.tar.gz nginx/conf.d
-
-# Backup complete
-echo "Backup completed to ${BACKUP_DIR}"
-EOF
-
-chmod +x backup.sh
-
-# Create a monitoring script
-cat > monitor.sh << 'EOF'
-#!/bin/bash
-# Simple monitoring script for Odoo SFU
-
-# Text colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-echo -e "${GREEN}Odoo SFU Monitoring${NC}"
-
-# Check container status
-echo -e "\n${YELLOW}Container Status:${NC}"
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E 'odoo-sfu|sfu-nginx'
-
-# Check container resource usage
-echo -e "\n${YELLOW}Resource Usage:${NC}"
-docker stats --no-stream odoo-sfu sfu-nginx
-
-# Check logs for errors (last 10 error lines)
-echo -e "\n${YELLOW}Recent Error Logs:${NC}"
-docker logs --tail 100 odoo-sfu 2>&1 | grep -i "error\|exception" | tail -10
-docker logs --tail 100 sfu-nginx 2>&1 | grep -i "error" | tail -10
-
-# Check SFU endpoint
-echo -e "\n${YELLOW}SFU Health Check:${NC}"
-curl -s -o /dev/null -w "Status: %{http_code}\n" http://localhost:8070/v1/noop
-
-# Check SSL certificate expiration
-echo -e "\n${YELLOW}SSL Certificate Information:${NC}"
-if [ -f nginx/ssl/fullchain.pem ]; then
-    openssl x509 -noout -in nginx/ssl/fullchain.pem -dates
 else
-    echo "SSL certificate not found"
+    # Generate a self-signed certificate for development
+    echo -e "${YELLOW}Generating self-signed certificate for development...${NC}"
+    
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout nginx/ssl/privkey.pem \
+        -out nginx/ssl/fullchain.pem \
+        -subj "/CN=${PUBLIC_IP}/O=Odoo SFU Dev/C=US" \
+        -addext "subjectAltName = IP:${PUBLIC_IP}"
 fi
-EOF
 
-chmod +x monitor.sh
+# Make sure permissions are correct for SSL files
+chmod 600 nginx/ssl/privkey.pem
+chmod 644 nginx/ssl/fullchain.pem
+
+
+# Make the open-ports script executable if it exists
+if [ -f open-ports.sh ]; then
+    chmod +x open-ports.sh
+fi
 
 # Instructions for the user
 echo -e "\n${GREEN}Setup complete!${NC}"
@@ -377,21 +271,23 @@ echo -e "\nTo monitor your SFU deployment:"
 echo -e "  ${YELLOW}./monitor.sh${NC}"
 
 echo -e "\nThe SFU will be available at:"
-if [ "$ENV_TYPE" = "1" ]; then
-    echo -e "  HTTP:  http://${PUBLIC_IP}:${NGINX_HTTP_PORT:-80} (redirects to HTTPS)"
-    echo -e "  HTTPS: https://${PUBLIC_IP}:${NGINX_HTTPS_PORT:-443}"
-    echo -e "\nIn your Odoo instance, configure the following:"
-    echo -e "  RTC Server URL: https://${PUBLIC_IP}"
-    echo -e "  RTC Server KEY: ${AUTH_KEY}"
-    echo -e "\n${YELLOW}Important: Since you're using a self-signed certificate, browsers will show a security warning.${NC}"
-    echo -e "You'll need to accept the risk in your browser to access the SFU."
-else
-    echo -e "  HTTP:  http://${DOMAIN_NAME}:${NGINX_HTTP_PORT:-80} (redirects to HTTPS)"
-    echo -e "  HTTPS: https://${DOMAIN_NAME}:${NGINX_HTTPS_PORT:-443}"
+if [ "$USE_DOMAIN" = "true" ]; then
+    echo -e "  HTTP:  http://${DOMAIN_NAME} (redirects to HTTPS)"
+    echo -e "  HTTPS: https://${DOMAIN_NAME}"
     echo -e "\nIn your Odoo instance, configure the following:"
     echo -e "  RTC Server URL: https://${DOMAIN_NAME}"
     echo -e "  RTC Server KEY: ${AUTH_KEY}"
-    echo -e "\n${YELLOW}Remember to set up Let's Encrypt as described above.${NC}"
+    
+    if [ ! -d "$CERT_PATH" ]; then
+        echo -e "\n${YELLOW}Remember to set up Let's Encrypt certificates!${NC}"
+    fi
+else
+    echo -e "  HTTP:  http://${PUBLIC_IP} (redirects to HTTPS)"
+    echo -e "  HTTPS: https://${PUBLIC_IP}"
+    echo -e "\nIn your Odoo instance, configure the following:"
+    echo -e "  RTC Server URL: https://${PUBLIC_IP}"
+    echo -e "  RTC Server KEY: ${AUTH_KEY}"
+    echo -e "\n${YELLOW}Note: Since you're using a self-signed certificate, browsers will show a security warning.${NC}"
 fi
 
 echo -e "\nOptionally, run the firewall configuration script to open required ports:"

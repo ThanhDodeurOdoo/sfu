@@ -21,12 +21,11 @@ services:
         limits:
           cpus: "${CPU_LIMIT:-1.0}"
           memory: "${MEMORY_LIMIT:-1G}"
-    # Note: Healthcheck is already in Dockerfile
-    # Add security labels
+    # Security labels
     labels:
       - "com.odoo.sfu.description=Odoo SFU Service"
       - "com.odoo.sfu.version=1.0"
-      - "com.odoo.sfu.environment=${ENVIRONMENT:-development}"
+      - "com.odoo.sfu.environment=${ENVIRONMENT:-production}"
 
   nginx:
     image: nginx:stable-alpine
@@ -39,6 +38,7 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - nginx-cache:/var/cache/nginx
+      - nginx-logs:/var/log/nginx
     depends_on:
       - sfu
     networks:
@@ -55,11 +55,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    # Add security labels
+    # Security labels
     labels:
       - "com.odoo.sfu.description=Nginx Reverse Proxy for Odoo SFU"
       - "com.odoo.sfu.version=1.0"
-      - "com.odoo.sfu.environment=${ENVIRONMENT:-development}"
+      - "com.odoo.sfu.environment=${ENVIRONMENT:-production}"
 
 networks:
   sfu-network:
@@ -68,4 +68,6 @@ networks:
 # Add volumes for persistence
 volumes:
   nginx-cache:
+    driver: local
+  nginx-logs:
     driver: local
