@@ -6,68 +6,19 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: odoo-sfu
-    restart: unless-stopped
-    ports:
-      - "8070:8070"
-      - "${RTC_MIN_PORT:-40000}-${RTC_MAX_PORT:-49999}:${RTC_MIN_PORT:-40000}-${RTC_MAX_PORT:-49999}/tcp"
-      - "${RTC_MIN_PORT:-40000}-${RTC_MAX_PORT:-49999}:${RTC_MIN_PORT:-40000}-${RTC_MAX_PORT:-49999}/udp"
+    network_mode: "host"
     env_file:
       - .env
-    networks:
-      - sfu-network
-    # Add resource constraints
-    deploy:
-      resources:
-        limits:
-          cpus: "${CPU_LIMIT:-1.0}"
-          memory: "${MEMORY_LIMIT:-1G}"
-    # Security labels
-    labels:
-      - "com.odoo.sfu.description=Odoo SFU Service"
-      - "com.odoo.sfu.version=1.0"
-      - "com.odoo.sfu.environment=${ENVIRONMENT:-production}"
+    restart: unless-stopped
 
   nginx:
     image: nginx:stable-alpine
     container_name: sfu-nginx
-    restart: unless-stopped
-    ports:
-      - "${NGINX_HTTP_PORT:-80}:80"
-      - "${NGINX_HTTPS_PORT:-443}:443"
+    network_mode: "host"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
-      - nginx-cache:/var/cache/nginx
-      - nginx-logs:/var/log/nginx
+    restart: unless-stopped
     depends_on:
       - sfu
-    networks:
-      - sfu-network
-    # Add resource constraints
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: "256M"
-    # Add healthcheck
-    healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    # Security labels
-    labels:
-      - "com.odoo.sfu.description=Nginx Reverse Proxy for Odoo SFU"
-      - "com.odoo.sfu.version=1.0"
-      - "com.odoo.sfu.environment=${ENVIRONMENT:-production}"
-
-networks:
-  sfu-network:
-    driver: bridge
-
-# Add volumes for persistence
-volumes:
-  nginx-cache:
-    driver: local
-  nginx-logs:
-    driver: local
+    
