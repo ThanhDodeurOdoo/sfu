@@ -1,6 +1,5 @@
 FROM node:23.11.0-slim
 
-# Add labels for better container management
 LABEL maintainer="Odoo SFU Team" \
       description="Odoo SFU (Selective Forwarding Unit) for WebRTC" \
       version="1.0"
@@ -8,22 +7,19 @@ LABEL maintainer="Odoo SFU Team" \
 # Working directory inside the container
 WORKDIR /app
 
-# Install necessary dependencies with security best practices
+# Install necessary dependencies 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3 \
     curl \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm config set fund false \
-    && npm config set audit false
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy package.json files first for better layer caching
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --omit=dev \
-    && npm cache clean --force
+# Install all dependencies (not omitting dev dependencies to ensure everything needed is available)
+RUN npm install && npm cache clean --force
 
 # Copy the rest of the application code
 COPY . .
@@ -35,8 +31,7 @@ RUN groupadd -r sfu && useradd -r -g sfu sfu \
 # Switch to non-root user
 USER sfu
 
-# Set only internal defaults for container operation
-# All configurable values should come from environment variables
+# Set environment variables
 ENV HTTP_INTERFACE="0.0.0.0" \
     PORT=8070 \
     RTC_INTERFACE="0.0.0.0" \
