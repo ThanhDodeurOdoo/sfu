@@ -28,9 +28,6 @@ RUN npm ci --omit=dev \
 # Copy the rest of the application code
 COPY . .
 
-# Build the client bundle
-RUN npm run build
-
 # Create a non-root user and set permissions
 RUN groupadd -r sfu && useradd -r -g sfu sfu \
     && chown -R sfu:sfu /app
