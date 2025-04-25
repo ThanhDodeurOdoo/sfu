@@ -1,110 +1,146 @@
-# Odoo SFU Docker Deployment Guide (OVH VPS)
+# Odoo SFU Docker Deployment Guide
 
-This guide provides instructions for deploying the Odoo Selective Forwarding Unit (SFU) on an OVH VPS using Docker and Nginx.
+This guide provides instructions for deploying the Odoo Selective Forwarding Unit (SFU) using Docker. The SFU is responsible for handling WebRTC connections for real-time communication in Odoo.
+
+## Overview
+
+The Odoo SFU uses [mediasoup](https://mediasoup.org/) as its WebRTC Selective Forwarding Unit to efficiently route audio and video streams between participants in real-time communications. The Docker deployment provides:
+
+- Containerized SFU server with proper isolation
+- Nginx reverse proxy with SSL termination
+- Automated setup and configuration
+- Monitoring and maintenance tools
 
 ## Requirements
 
-- An OVH VPS with Ubuntu 20.04 or newer
-- A custom domain name (recommended for production)
+- Linux-based server (tested on Ubuntu 20.04/22.04)
+- Node JS / NPM at the version supported by the SFU
 - Docker and Docker Compose installed
-- Ports 80, 443, 8070, and 40000-49999 (TCP/UDP) accessible
+- Public IP address with ports accessible:
+  - 80/443 TCP (HTTP/HTTPS)
+  - 8070 TCP (SFU WebSocket)
+  - 40000-49999 TCP/UDP (WebRTC media)
+- Domain name with DNS records pointing to your server (recommended for production)
 
 ## Quick Start
 
-1. **Clone or transfer this repository to your VPS**
+1. **Clone the repository to your server**
 
-2. **Run the setup script:**
    ```bash
-   cd docker
+   git clone https://github.com/your-repository/odoo-sfu.git
+   cd odoo-sfu/docker
+   ```
+
+2. **Run the setup script**
+
+   ```bash
    chmod +x setup.sh
    ./setup.sh
    ```
 
-3. **Open required ports:**
+   The setup script will:
+   - Create necessary directories
+   - Generate configuration files
+   - Create .env file with required variables
+   - Generate or use existing SSL certificates
+   - Configure Nginx
+
+3. **Open required ports in your firewall**
+
    ```bash
    sudo ./open-ports.sh
    ```
 
-4. **Start the SFU:**
+4. **Start the SFU**
+
    ```bash
    docker compose up -d
    ```
 
-5. **Configure your Odoo instance:**
-   - RTC Server URL: `https://your-domain.com` or `https://your-server-ip`
+5. **Configure your Odoo instance**
+
+   In your Odoo settings, configure:
+   - RTC Server URL: `https://your-domain.com` (or `https://your-server-ip`)
    - RTC Server KEY: The AUTH_KEY value (from .env file)
 
-## Directory Structure
+## Configuration Options
 
-```
-docker/
-├── docker-compose.yml          # Docker Compose configuration
-├── Dockerfile                  # SFU container build instructions
-├── .env                        # Environment variables (created by setup.sh)
-├── .env.example               # Example environment variables
-├── setup.sh                    # Setup script for initial configuration
-├── backup.sh                   # Backup script for configurations
-├── monitor.sh                  # Monitoring script for system health
-├── open-ports.sh               # Script to configure firewall rules
-└── nginx/
-    ├── conf.d/                 # Nginx configuration
-    └── ssl/                    # SSL certificates
-```
+The most important env variables are:
 
-## OVH-Specific Considerations
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PUBLIC_IP` | Public IP address of the server | Auto-detected |
+| `AUTH_KEY` | Authentication key for JWT tokens | Generated on setup |
+| `DOMAIN_NAME` | Your domain (if using one) | Prompted if missing |
 
-### 1. Network Configuration
+For an exhaustive list, refer to the SFU documentation.
 
-OVH VPS instances require specific network configuration for optimal WebRTC performance:
-
-- Verify that UDP ports 40000-49999 are open in the OVH firewall
-- Set the correct PUBLIC_IP in your .env file
-- If you have issues with WebRTC connectivity, contact OVH support about UDP traffic policies
-
-### 2. Domain Configuration
-
-If using a custom domain purchased through OVH:
-
-- Set up DNS records pointing to your VPS IP address
-- A record: `@` → Your VPS IP address
-- A record: `www` → Your VPS IP address
-- Wait for DNS propagation (can take up to 24 hours)
-
-### 3. SSL Certificate Setup
-
-For production environments, obtain a Let's Encrypt certificate:
+To update configuration:
 
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+./update-env.sh KEY1=VALUE1 KEY2=VALUE2
+```
+
+## SSL Certificate Setup
+
+### Using Let's Encrypt (Production)
+
+If you're using a domain name:
+
+```bash
+sudo ./setup-letsencrypt.sh
+```
+
+### Self-signed Certificates (Development/Testing)
+
+For testing environments:
+
+```bash
+./generate-self-signed-cert.sh
 ```
 
 ## Maintenance
 
 ### Monitoring
 
-Run the monitoring script to check system health:
+The monitoring script provides information about the health and performance of your SFU:
 
 ```bash
 ./monitor.sh
 ```
 
-Set up a cron job for regular monitoring:
+This shows:
+- Container status
+- Resource usage
+- Error logs
+- Active connections
+- SSL certificate information
+- System load
+
+Set up regular monitoring with cron:
 
 ```bash
 crontab -e
 # Add: */15 * * * * cd /path/to/docker && ./monitor.sh > /var/log/sfu-monitor.log 2>&1
 ```
 
+or
+
+```bash
+docker logs [--tail number] process-name
+docker logs --tail 10 odoo-sfu
+docker logs --tail 10 sfu-nginx
+```
+
 ### Backups
 
-Run the backup script to save your configuration:
+Back up your configuration regularly:
 
 ```bash
 ./backup.sh
 ```
 
-Set up a cron job for daily backups:
+By default, backups are stored in `/var/backups/odoo-sfu/`. Set up a backup schedule:
 
 ```bash
 crontab -e
@@ -115,70 +151,95 @@ crontab -e
 
 To update the SFU:
 
-```bash
-# Pull latest changes
-git pull
+1. Pull the latest changes
+   ```bash
+   git pull
+   ```
 
-# Rebuild and restart
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-```
+2. Rebuild and restart the containers
+   ```bash
+   docker compose down
+   docker compose up -d --build
+   ```
+
+## Network Configuration
+
+For optimal WebRTC performance, ensure:
+
+- UDP ports 40000-49999 are properly forwarded in your firewall and network settings
+- The PUBLIC_IP value in your .env file is correctly set to your server's public IP
+- Your hosting provider or network doesn't have UDP rate limiting that could affect WebRTC connections
 
 ## Troubleshooting
 
 ### WebRTC Connection Issues
 
-If you experience connection problems:
-
-1. Verify UDP port connectivity:
+1. **Verify ports are open**:
    ```bash
-   sudo apt install -y netcat
-   nc -l -u -p 40500  # Run on server
-   # From another machine: nc -u your_vps_ip 40500
+   sudo iptables -L -n
+   nc -vz -u your_server_ip 40500
    ```
 
-2. Check SSL certificates:
+2. **Check SFU logs**:
    ```bash
-   openssl x509 -in nginx/ssl/fullchain.pem -text -noout
+   docker logs odoo-sfu
    ```
 
-3. Verify Nginx configuration:
+3. **Verify Nginx configuration**:
    ```bash
    docker exec sfu-nginx nginx -t
    ```
 
-4. Check container logs:
+4. **Test SFU API endpoint**:
    ```bash
-   docker logs odoo-sfu
-   docker logs sfu-nginx
+   curl -k https://your-domain.com/v1/noop
    ```
 
-### OVH-Specific Issues
+### Common Issues
 
-1. **IPv6 Connectivity:** If you're using IPv6, add this to your docker-compose.yml:
-   ```yaml
-   services:
-     sfu:
-       enable_ipv6: true
-     nginx:
-       enable_ipv6: true
-   ```
+1. **"Failed to connect to SFU" in Odoo**:
+   - Verify AUTH_KEY matches between SFU and Odoo
+   - Check SSL certificate validity
+   - Ensure WebRTC ports are open
 
-2. **Resource Limits:** Adjust CPU_LIMIT and MEMORY_LIMIT in .env based on your VPS plan
+2. **Poor video/audio quality**:
+   - Check network bandwidth between participants
+   - Adjust MAX_BITRATE settings in .env
+   - Consider upgrading server resources
 
-3. **Network Performance:** Consider upgrading to OVH's High Network Performance option for better WebRTC quality
+3. **High CPU usage**:
+   - Adjust NUM_WORKERS to a lower value
+   - Monitor with `./monitor.sh`
+   - Consider resource limits in docker-compose.yml
 
-## Security Recommendations
+## Security Considerations
 
-1. Keep your AUTH_KEY private and secure
+1. Keep your AUTH_KEY secure - this is the primary authentication mechanism
 2. Regularly update your system and Docker images
-3. Implement regular backups to OVH Object Storage
-4. Monitor logs for suspicious activity
+3. Use Let's Encrypt for valid SSL certificates in production
+4. Implement proper firewall rules with `./open-ports.sh`
 5. Consider adding basic authentication for the /v1/ API endpoints
 
-## Contact and Support
+## Directory Structure
 
-For issues with this deployment configuration, please open an issue in the repository.
+```
+docker/
+├── docker-compose.yml          # Docker Compose configuration
+├── Dockerfile                  # SFU container build instructions
+├── .env                        # Environment variables
+├── setup.sh                    # Initial setup script
+├── setup-letsencrypt.sh        # Let's Encrypt certificate setup
+├── open-ports.sh               # Firewall configuration
+├── monitor.sh                  # System monitoring
+├── backup.sh                   # Configuration backup
+├── update-env.sh               # Environment variable updater
+├── generate-self-signed-cert.sh # Self-signed certificate generator
+├── generate-nginx-conf.sh      # Nginx configuration generator
+└── nginx/                      # Nginx configuration
+    ├── conf.d/                 # Site configurations
+    └── ssl/                    # SSL certificates
+```
 
-For OVH VPS issues, contact OVH support through your control panel.
+## Support
+
+For issues with this deployment configuration, please open an issue in the repository. For hosting provider-specific issues, contact your provider's technical support.
