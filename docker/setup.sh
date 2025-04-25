@@ -1,16 +1,14 @@
 #!/bin/bash
 set -e
 
-# Text colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${GREEN}Odoo SFU Docker Setup Script${NC}"
 echo "This script will help you set up the Odoo SFU in Docker."
 
-# Error handling function
 handle_error() {
     echo -e "${RED}Error: ${1}${NC}"
     exit 1

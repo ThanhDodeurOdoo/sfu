@@ -4,7 +4,6 @@ LABEL maintainer="Odoo SFU Team" \
       description="Odoo SFU (Selective Forwarding Unit) for WebRTC" \
       version="1.0"
 
-# Working directory inside the container
 WORKDIR /app
 
 # Install necessary dependencies 
