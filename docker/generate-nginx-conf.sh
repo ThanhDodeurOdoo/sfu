@@ -90,6 +90,19 @@ server {
     client_body_timeout 10s;
     client_header_timeout 10s;
     
+    # Stats endpoint
+    location ~ /.*stats {
+        allow 127.0.0.1;
+        deny all;
+
+        proxy_pass http://localhost:8070;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     # Forward traffic to SFU
     location / {
         proxy_pass http://localhost:8070;
@@ -110,19 +123,6 @@ server {
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
     }
-    
-    # Stats endpoint with basic auth (uncomment and configure if needed)
-    #location /v1/stats {
-    #    auth_basic "Restricted Access";
-    #    auth_basic_user_file /etc/nginx/.htpasswd;
-    #    
-    #    proxy_pass http://localhost:8070;
-    #    proxy_http_version 1.1;
-    #    proxy_set_header Host \$host;
-    #    proxy_set_header X-Real-IP \$remote_addr;
-    #    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    #    proxy_set_header X-Forwarded-Proto \$scheme;
-    #}
     
     # Deny access to hidden files
     location ~ /\\. {
