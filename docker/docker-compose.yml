@@ -18,6 +18,7 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/ssl/stats_auth:/etc/nginx/stats_auth:ro
     restart: unless-stopped
     depends_on:
       - sfu

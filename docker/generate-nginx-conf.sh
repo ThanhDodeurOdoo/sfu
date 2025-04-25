@@ -24,6 +24,10 @@ if [ -z "$DOMAIN" ] || [ -z "$IP" ]; then
     fi
 fi
 
+# Generate a random password for stats access if not specified
+STATS_USERNAME="admin"
+STATS_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 12)
+
 # Create nginx conf.d directory if it doesn't exist
 mkdir -p nginx/conf.d
 
@@ -90,11 +94,11 @@ server {
     client_body_timeout 10s;
     client_header_timeout 10s;
     
-    # Stats endpoint
+    # Restrict access to stats endpoints with generated credentials
     location ~ /.*stats {
-        allow 127.0.0.1;
-        deny all;
-
+        auth_basic "SFU Statistics Access";
+        auth_basic_user_file /etc/nginx/stats_auth;
+        
         proxy_pass http://localhost:8070;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -102,8 +106,8 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
-
-    # Forward traffic to SFU
+    
+    # Forward traffic to SFU for all other routes
     location / {
         proxy_pass http://localhost:8070;
         proxy_http_version 1.1;
@@ -130,7 +134,24 @@ server {
         access_log off;
         log_not_found off;
     }
+
+    # Block access to sensitive non-hidden paths
+    location ~ ^/(ssl|etc|nginx/ssl|docker|backup|private|certs) {
+        deny all;
+        return 404;
+        access_log off;
+        log_not_found off;
+    }
 }
 EOF
 
+# Create the password file
+PASSWORD_HASH=$(openssl passwd -apr1 "$STATS_PASSWORD")
+echo "${STATS_USERNAME}:${PASSWORD_HASH}" > nginx/ssl/stats_auth
+
 echo "Secure Nginx configuration for ${DOMAIN} generated successfully."
+echo ""
+echo "Stats access credentials:"
+echo " - Username: ${STATS_USERNAME}"
+echo " - Password: ${STATS_PASSWORD}"
+echo ""
