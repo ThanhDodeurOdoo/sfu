@@ -1,12 +1,12 @@
 #!/bin/bash
-# Enhanced script to generate secure Nginx configuration with the provided domain name and IP
+# Script to generate secure Nginx configuration with the provided domain name and IP
 
 DOMAIN=$1
 IP=$2
 
 if [ -z "$DOMAIN" ] || [ -z "$IP" ]; then
     echo "Usage: $0 <domain_name> <server_ip>"
-    echo "Example: $0 tso-sfu-001.eu 51.91.249.43"
+    echo "Example: $0 odoo-sfu-006.eu 55.81.244.42"
     
     # Try to get values from .env if not provided
     if [ -f .env ]; then
@@ -26,6 +26,13 @@ fi
 
 # Create nginx conf.d directory if it doesn't exist
 mkdir -p nginx/conf.d
+
+# Create the main nginx.conf for the http context
+cat > nginx/conf.d/http-context.conf << EOF
+# Define rate limiting zones - must be in http context
+limit_req_zone \$binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_conn_zone \$binary_remote_addr zone=conn_limit:10m;
+EOF
 
 # Generate the Nginx configuration
 cat > nginx/conf.d/default.conf << EOF
@@ -83,10 +90,6 @@ server {
     client_body_timeout 10s;
     client_header_timeout 10s;
     
-    # Define rate limiting zones
-    limit_req_zone \$binary_remote_addr zone=api_limit:10m rate=10r/s;
-    limit_conn_zone \$binary_remote_addr zone=conn_limit:10m;
-    
     # Forward traffic to SFU
     location / {
         proxy_pass http://localhost:8070;
@@ -131,17 +134,3 @@ server {
 EOF
 
 echo "Secure Nginx configuration for ${DOMAIN} generated successfully."
-echo "Key security features added:"
-echo " - TLS hardening"
-echo " - HTTP security headers"
-echo " - Rate limiting"
-echo " - Direct IP access blocking"
-echo " - Request size limits"
-echo " - Server information hiding"
-
-# Provide information about enabling basic auth if needed
-echo ""
-echo "To enable basic authentication for admin endpoints:"
-echo "1. Install apache2-utils: sudo apt install apache2-utils"
-echo "2. Create password file: sudo htpasswd -c /etc/nginx/.htpasswd admin"
-echo "3. Uncomment the /v1/stats location block in the configuration"
