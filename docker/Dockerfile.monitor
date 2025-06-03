@@ -1,0 +1,19 @@
+FROM node:23.11.0-slim
+
+LABEL maintainer="SFU Monitor" \
+      description="SFU Monitor with Docker CLI" \
+      version="1.0"
+
+# Install Docker CLI (one time during build)
+RUN apt-get update && \
+    apt-get install -y docker.io && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Expose monitor port
+EXPOSE 8071
+
+# Start the monitor server
+CMD ["node", "server.js"]
