@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SFU Monitor Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: monospace;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            line-height: 1.4;
+        }
+
+        .header {
+            background: #2d2d2d;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #4CAF50;
+            font-size: 1.5rem;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #f44336;
+            transition: background-color 0.3s;
+        }
+
+        .status-dot.online {
+            background: #4CAF50;
+        }
+
+        .status-dot.warning {
+            background: #ff9800;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            height: calc(100vh - 70px);
+            gap: 1px;
+            background: #444;
+        }
+
+        .main-content {
+            background: #1a1a1a;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar {
+            background: #2d2d2d;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .controls {
+            padding: 1rem 2rem;
+            background: #2d2d2d;
+            border-bottom: 1px solid #444;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background: #45a049;
+        }
+
+        .btn.secondary {
+            background: #666;
+        }
+
+        .btn.secondary:hover {
+            background: #777;
+        }
+
+        .logs-container {
+            flex: 1;
+            padding: 1rem 2rem;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+
+        .log-line {
+            margin-bottom: 0.2rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-line.error {
+            color: #f44336;
+        }
+
+        .log-line.warn {
+            color: #ff9800;
+        }
+
+        .log-line.info {
+            color: #4CAF50;
+        }
+
+        .log-line.debug {
+            color: #2196F3;
+        }
+
+        .sidebar h3 {
+            color: #4CAF50;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .stat-group {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: #333;
+            border-radius: 4px;
+        }
+
+        .stat-group h4 {
+            color: #e0e0e0;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.3rem;
+            font-size: 0.8rem;
+        }
+
+        .stat-value {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 0.7rem;
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .auto-refresh input[type="checkbox"] {
+            margin: 0;
+        }
+
+        .loading {
+            color: #ff9800;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr auto;
+            }
+
+            .sidebar {
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>SFU Monitor Dashboard</h1>
+        <div class="status-indicator">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Checking...</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="controls">
+                <button class="btn" onclick="refreshLogs()">Refresh Logs</button>
+                <button class="btn secondary" onclick="clearLogs()">Clear Display</button>
+                <div class="auto-refresh">
+                    <label>
+                        <input type="checkbox" id="autoRefresh" checked>
+                        Auto-refresh (30s)
+                    </label>
+                </div>
+                <select id="logLines" onchange="updateLogLines()">
+                    <option value="100">Last 100 lines</option>
+                    <option value="200" selected>Last 200 lines</option>
+                    <option value="500">Last 500 lines</option>
+                    <option value="1000">Last 1000 lines</option>
+                </select>
+            </div>
+            <div class="logs-container" id="logsContainer">
+                <div class="loading">Loading logs...</div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <h3>System Status</h3>
+
+            <div class="stat-group">
+                <h4>SFU Health</h4>
+                <div id="healthStats">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <div class="stat-group">
+                <h4>Channel Statistics</h4>
+                <div id="channelStats">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <div class="stat-group">
+                <h4>System Info</h4>
+                <div id="systemStats">
+                    <div class="stat-item">
+                        <span>Domain:</span>
+                        <span class="stat-value">tso-sfu-001.eu</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>IP:</span>
+                        <span class="stat-value">51.91.249.43</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Last Update:</span>
+                        <span class="timestamp" id="lastUpdate">Never</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval;
+        let logLines = 200;
+
+        const CONFIG = {
+            REFRESH_INTERVAL: 30000, // 30 seconds
+            NOOP_ENDPOINT: '/v1/noop',
+            STATS_ENDPOINT: '/v1/stats',
+            LOGS_ENDPOINT: '/monitor-api/logs'
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshAll();
+            setupAutoRefresh();
+        });
+
+        function setupAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+
+            function toggleAutoRefresh() {
+                if (checkbox.checked) {
+                    autoRefreshInterval = setInterval(refreshAll, CONFIG.REFRESH_INTERVAL);
+                } else {
+                    clearInterval(autoRefreshInterval);
+                }
+            }
+
+            checkbox.addEventListener('change', toggleAutoRefresh);
+            toggleAutoRefresh();
+        }
+
+        function updateLogLines() {
+            const select = document.getElementById('logLines');
+            logLines = parseInt(select.value);
+            refreshLogs();
+        }
+
+        async function refreshAll() {
+            await Promise.all([
+                checkHealth(),
+                refreshStats(),
+                refreshLogs()
+            ]);
+            updateTimestamp();
+        }
+
+        async function checkHealth() {
+            try {
+                const healthResponse = await fetch('/monitor-api/health');
+                const healthData = await healthResponse.json();
+
+                const sfuResponse = await fetch(CONFIG.NOOP_ENDPOINT);
+                const sfuData = await sfuResponse.json();
+
+                if (sfuResponse.ok && sfuData.result === 'ok') {
+                    updateStatus('online', 'Online');
+                } else {
+                    updateStatus('warning', 'Degraded');
+                }
+
+                const healthContainer = document.getElementById('healthStats');
+                healthContainer.innerHTML = `
+                    <div class="stat-item">
+                        <span>SFU Status:</span>
+                        <span class="stat-value">✓ Healthy</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Monitor:</span>
+                        <span class="stat-value">✓ ${healthData.status}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Response:</span>
+                        <span class="stat-value">${sfuResponse.status}</span>
+                    </div>
+                `;
+            } catch (error) {
+                updateStatus('offline', 'Offline');
+                const healthContainer = document.getElementById('healthStats');
+                healthContainer.innerHTML = `
+                    <div class="stat-item">
+                        <span>Status:</span>
+                        <span style="color: #f44336;">✗ Error</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Error:</span>
+                        <span style="color: #f44336; font-size: 0.7rem;">${error.message}</span>
+                    </div>
+                `;
+            }
+        }
+
+        async function refreshStats() {
+            try {
+                console.log('Fetching stats from:', CONFIG.STATS_ENDPOINT);
+                const response = await fetch(CONFIG.STATS_ENDPOINT, {
+                    credentials: 'same-origin' // Include auth cookies
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Stats data received:', data);
+
+                const statsContainer = document.getElementById('channelStats');
+
+                if (Array.isArray(data) && data.length > 1) {
+                    const [packageInfo, ...channels] = data;
+
+                    let totalSessions = 0;
+                    let totalBitrate = 0;
+
+                    let channelsHtml = '';
+
+                    channels.forEach((channel, index) => {
+                        totalSessions += channel.sessionsStats?.count || 0;
+                        totalBitrate += channel.sessionsStats?.incomingBitRate?.total || 0;
+
+                        channelsHtml += `
+                            <div style="margin-bottom: 0.5rem; padding: 0.5rem; background: #444; border-radius: 3px;">
+                                <div class="stat-item">
+                                    <span>Channel ${index + 1}:</span>
+                                    <span class="stat-value">${channel.sessionsStats?.count || 0} users</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span>Bitrate:</span>
+                                    <span class="stat-value">${formatBitrate(channel.sessionsStats?.incomingBitRate?.total || 0)}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    statsContainer.innerHTML = `
+                        <div class="stat-item">
+                            <span>Total Channels:</span>
+                            <span class="stat-value">${channels.length}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Total Sessions:</span>
+                            <span class="stat-value">${totalSessions}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Total Bitrate:</span>
+                            <span class="stat-value">${formatBitrate(totalBitrate)}</span>
+                        </div>
+                        <div style="margin-top: 0.5rem;">
+                            ${channelsHtml}
+                        </div>
+                    `;
+                } else if (Array.isArray(data) && data.length === 1) {
+                    // Only package info, no channels
+                    statsContainer.innerHTML = `
+                        <div class="stat-item">
+                            <span>Channels:</span>
+                            <span class="stat-value">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Sessions:</span>
+                            <span class="stat-value">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Version:</span>
+                            <span class="stat-value">${data[0]?.package?.version || 'Unknown'}</span>
+                        </div>
+                    `;
+                } else {
+                    statsContainer.innerHTML = `
+                        <div class="stat-item">
+                            <span>Channels:</span>
+                            <span class="stat-value">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Sessions:</span>
+                            <span class="stat-value">0</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Stats fetch error:', error);
+                const statsContainer = document.getElementById('channelStats');
+                statsContainer.innerHTML = `
+                    <div style="color: #f44336; font-size: 0.8rem;">
+                        Error loading stats: ${error.message}
+                    </div>
+                    <div style="color: #888; font-size: 0.7rem; margin-top: 0.5rem;">
+                        Check browser console for details
+                    </div>
+                `;
+            }
+        }
+
+        async function refreshLogs() {
+            try {
+                console.log('Fetching logs from:', CONFIG.LOGS_ENDPOINT);
+                const response = await fetch(`${CONFIG.LOGS_ENDPOINT}?lines=${logLines}`, {
+                    credentials: 'same-origin' // Include auth cookies
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const logs = await response.text();
+                console.log('Logs received, length:', logs.length);
+
+                const logsContainer = document.getElementById('logsContainer');
+                logsContainer.innerHTML = '';
+
+                if (logs.trim()) {
+                    const lines = logs.trim().split('\n');
+                    lines.forEach(line => {
+                        const logElement = document.createElement('div');
+                        logElement.className = `log-line ${getLogLevel(line)}`;
+                        logElement.textContent = line;
+                        logsContainer.appendChild(logElement);
+                    });
+                } else {
+                    logsContainer.innerHTML = '<div class="loading">No logs available</div>';
+                }
+
+                // Auto-scroll to bottom
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            } catch (error) {
+                console.error('Logs fetch error:', error);
+                const logsContainer = document.getElementById('logsContainer');
+                logsContainer.innerHTML = `
+                    <div style="color: #f44336;">Error loading logs: ${error.message}</div>
+                    <div style="color: #888; font-size: 0.8rem; margin-top: 0.5rem;">
+                        Check browser console for details. Try: curl -u user:pass https://tso-sfu-001.eu/monitor-api/logs
+                    </div>
+                `;
+            }
+        }
+
+        function getLogLevel(logLine) {
+            if (logLine.includes(':ERROR:')) return 'error';
+            if (logLine.includes(':WARN:')) return 'warn';
+            if (logLine.includes(':INFO:')) return 'info';
+            if (logLine.includes(':DEBUG:')) return 'debug';
+            return '';
+        }
+
+        function formatBitrate(bitrate) {
+            if (bitrate === 0) return '0 bps';
+            if (bitrate < 1000) return `${bitrate} bps`;
+            if (bitrate < 1000000) return `${(bitrate / 1000).toFixed(1)} kbps`;
+            return `${(bitrate / 1000000).toFixed(1)} Mbps`;
+        }
+
+        function updateStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            dot.className = `status-dot ${status}`;
+            statusText.textContent = text;
+        }
+
+        function updateTimestamp() {
+            const timestampElement = document.getElementById('lastUpdate');
+            timestampElement.textContent = new Date().toLocaleTimeString();
+        }
+
+        function clearLogs() {
+            const logsContainer = document.getElementById('logsContainer');
+            logsContainer.innerHTML = '<div class="loading">Logs cleared. Click refresh to reload.</div>';
+        }
+
+        window.refreshLogs = refreshLogs;
+        window.clearLogs = clearLogs;
+        window.updateLogLines = updateLogLines;
+    </script>
+</body>
+</html>

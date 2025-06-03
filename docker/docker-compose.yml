@@ -11,6 +11,22 @@ services:
       - .env
     restart: unless-stopped
 
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    container_name: sfu-monitor
+    working_dir: /app
+    volumes:
+      - ./monitor.html:/app/monitor.html:ro
+      - ./monitor-server.js:/app/server.js:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8071:8071"
+    depends_on:
+      - sfu
+
   nginx:
     image: nginx:stable-alpine
     container_name: sfu-nginx
@@ -22,4 +38,4 @@ services:
     restart: unless-stopped
     depends_on:
       - sfu
-    
+      - monitor
