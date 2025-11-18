@@ -1,8 +1,14 @@
 import * as mediasoup from "mediasoup";
-import type { WebRtcServerOptions } from "mediasoup/node/lib/types";
 
 import * as config from "#src/config.ts";
 import { Logger } from "#src/utils/utils.ts";
+import { PortLimitReachedError } from "#src/utils/errors.ts";
+import os from "node:os";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const availablePorts: Set<number> = new Set();
+let unique = 1;
 
 export interface RtcWorker extends mediasoup.types.Worker {
     appData: {
@@ -10,8 +16,11 @@ export interface RtcWorker extends mediasoup.types.Worker {
     };
 }
 
-const logger = new Logger("RTC");
+// TODO maybe write some docstring, file used to manage resources such as folders, workers, ports
+
+const logger = new Logger("RESOURCES");
 const workers = new Set<RtcWorker>();
+const tempDir = os.tmpdir() + "/ongoing_recordings";
 
 export async function start(): Promise<void> {
     logger.info("starting...");
@@ -21,6 +30,12 @@ export async function start(): Promise<void> {
     logger.info(`initialized ${workers.size} mediasoup workers`);
     logger.info(
         `transport(RTC) layer at ${config.PUBLIC_IP}:${config.RTC_MIN_PORT}-${config.RTC_MAX_PORT}`
+    );
+    for (let i = config.dynamicPorts.min; i <= config.dynamicPorts.max; i++) {
+        availablePorts.add(i);
+    }
+    logger.info(
+        `${availablePorts.size} dynamic ports available [${config.dynamicPorts.min}-${config.dynamicPorts.max}]`
     );
 }
 
@@ -33,11 +48,9 @@ export function close(): void {
 }
 
 async function makeWorker(): Promise<void> {
-    const worker = (await mediasoup.createWorker(config.rtc.workerSettings)) as RtcWorker;
-    worker.appData.webRtcServer = await worker.createWebRtcServer(
-        config.rtc.rtcServerOptions as WebRtcServerOptions
-    );
-    workers.add(worker);
+    const worker = await mediasoup.createWorker(config.rtc.workerSettings);
+    worker.appData.webRtcServer = await worker.createWebRtcServer(config.rtc.rtcServerOptions);
+    workers.add(worker as RtcWorker);
     worker.once("died", (error: Error) => {
         logger.error(`worker died: ${error.message} ${error.stack ?? ""}`);
         workers.delete(worker);
@@ -75,4 +88,47 @@ export async function getWorker(): Promise<mediasoup.types.Worker> {
     }
     logger.debug(`worker ${leastUsedWorker!.pid} with ${lowestUsage} ru_maxrss was selected`);
     return leastUsedWorker;
+}
+
+export class Folder {
+    path: string;
+
+    constructor(path: string) {
+        this.path = path;
+    }
+
+    async seal(name: string) {
+        const destinationPath = path.join(config.recording.directory, name);
+        await fs.rename(this.path, destinationPath);
+        this.path = destinationPath;
+        logger.verbose(`Moved folder from ${this.path} to ${destinationPath}`);
+    }
+    async delete() {
+        logger.trace(`TO IMPLEMENT`);
+    }
+}
+
+export function getFolder(): Folder {
+    return new Folder(`${tempDir}/${Date.now()}-${unique++}`);
+}
+
+class DynamicPort {
+    number: number;
+
+    constructor(number: number) {
+        availablePorts.delete(number);
+        this.number = number;
+    }
+
+    release() {
+        availablePorts.add(this.number);
+    }
+}
+
+export function getPort(): DynamicPort {
+    const number = availablePorts.values().next().value;
+    if (!number) {
+        throw new PortLimitReachedError();
+    }
+    return new DynamicPort(number);
 }

@@ -5,7 +5,8 @@ import * as fakeParameters from "mediasoup-client/lib/test/fakeParameters";
 
 import * as auth from "#src/services/auth";
 import * as http from "#src/services/http";
-import * as rtc from "#src/services/rtc";
+import * as resources from "#src/services/resources";
+import { Deferred } from "#src/utils/utils";
 import { SfuClient, SfuClientState } from "#src/client";
 import { Channel } from "#src/models/channel";
 import type { Session } from "#src/models/session";
@@ -37,6 +38,8 @@ interface ConnectionResult {
     session: Session;
     /** Client-side SFU client instance */
     sfuClient: SfuClient;
+    /** Promise resolving to true when client is connected */
+    isConnected: Deferred<boolean>;
 }
 
 /**
@@ -69,9 +72,9 @@ export class LocalNetwork {
         this.port = port;
 
         // Start all services in correct order
-        await rtc.start();
+        await resources.start();
         await http.start({ httpInterface: hostname, port });
-        await auth.start(HMAC_B64_KEY);
+        auth.start(HMAC_B64_KEY);
     }
 
     /**
@@ -90,9 +93,9 @@ export class LocalNetwork {
             iss: `http://${this.hostname}:${this.port}/`,
             key
         });
-
+        const TEST_RECORDING_ADDRESS = "http://localhost:8080"; // TODO maybe to change and use that later
         const response = await fetch(
-            `http://${this.hostname}:${this.port}/v${http.API_VERSION}/channel?webRTC=${useWebRtc}`,
+            `http://${this.hostname}:${this.port}/v${http.API_VERSION}/channel?webRTC=${useWebRtc}&recordingAddress=${TEST_RECORDING_ADDRESS}`,
             {
                 method: "GET",
                 headers: {
@@ -147,29 +150,37 @@ export class LocalNetwork {
         };
 
         // Set up authentication promise
-        const isClientAuthenticated = new Promise<boolean>((resolve, reject) => {
-            const handleStateChange = (event: CustomEvent) => {
-                const { state } = event.detail;
-                switch (state) {
-                    case SfuClientState.AUTHENTICATED:
-                        sfuClient.removeEventListener(
-                            "stateChange",
-                            handleStateChange as EventListener
-                        );
-                        resolve(true);
-                        break;
-                    case SfuClientState.CLOSED:
-                        sfuClient.removeEventListener(
-                            "stateChange",
-                            handleStateChange as EventListener
-                        );
-                        reject(new Error("client closed"));
-                        break;
-                }
-            };
+        const isClientAuthenticated = new Deferred<boolean>();
+        const handleStateChange = (event: CustomEvent) => {
+            const { state } = event.detail;
+            switch (state) {
+                case SfuClientState.AUTHENTICATED:
+                    sfuClient.removeEventListener(
+                        "stateChange",
+                        handleStateChange as EventListener
+                    );
+                    isClientAuthenticated.resolve(true);
+                    break;
+                case SfuClientState.CLOSED:
+                    sfuClient.removeEventListener(
+                        "stateChange",
+                        handleStateChange as EventListener
+                    );
+                    isClientAuthenticated.reject(new Error("client closed"));
+                    break;
+            }
+        };
+        sfuClient.addEventListener("stateChange", handleStateChange as EventListener);
 
-            sfuClient.addEventListener("stateChange", handleStateChange as EventListener);
-        });
+        const isConnected = new Deferred<boolean>();
+        const connectedHandler = (event: CustomEvent) => {
+            const { state } = event.detail;
+            if (state === SfuClientState.CONNECTED) {
+                sfuClient.removeEventListener("stateChange", connectedHandler as EventListener);
+                isConnected.resolve(true);
+            }
+        };
+        sfuClient.addEventListener("stateChange", connectedHandler as EventListener);
 
         // Start connection
         sfuClient.connect(
@@ -177,7 +188,11 @@ export class LocalNetwork {
             this.makeJwt(
                 {
                     sfu_channel_uuid: channelUUID,
-                    session_id: sessionId
+                    session_id: sessionId,
+                    permissions: {
+                        recording: true,
+                        transcription: true
+                    }
                 },
                 key
             ),
@@ -198,7 +213,7 @@ export class LocalNetwork {
             throw new Error(`Session ${sessionId} not found in channel ${channelUUID}`);
         }
 
-        return { session, sfuClient };
+        return { session, sfuClient, isConnected };
     }
 
     /**
@@ -217,7 +232,7 @@ export class LocalNetwork {
         // Stop all services
         auth.close();
         http.close();
-        rtc.close();
+        resources.close();
 
         // Clear network info
         this.hostname = undefined;

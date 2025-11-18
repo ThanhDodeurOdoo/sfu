@@ -1,14 +1,14 @@
 import { EventEmitter } from "node:events";
 
 import type {
-    IceParameters,
-    IceCandidate,
-    DtlsParameters,
-    SctpParameters,
     Consumer,
+    DtlsParameters,
+    IceCandidate,
+    IceParameters,
     Producer,
-    WebRtcTransport,
-    RtpCapabilities
+    RtpCapabilities,
+    SctpParameters,
+    WebRtcTransport
 } from "mediasoup/node/lib/types";
 
 import * as config from "#src/config.ts";
@@ -20,7 +20,13 @@ import {
     SERVER_REQUEST,
     STREAM_TYPE
 } from "#src/shared/enums.ts";
-import type { JSONSerializable, StreamType, BusMessage } from "#src/shared/types";
+import type {
+    BusMessage,
+    JSONSerializable,
+    RequestMessage,
+    StartupData,
+    StreamType
+} from "#src/shared/types";
 import type { Bus } from "#src/shared/bus.ts";
 import type { Channel } from "#src/models/channel.ts";
 
@@ -55,6 +61,10 @@ export enum SESSION_CLOSE_CODE {
     P_TIMEOUT = "ping_timeout",
     KICKED = "kicked",
     ERROR = "error"
+}
+export interface SessionPermissions {
+    recording?: boolean;
+    transcription?: boolean;
 }
 export interface TransportConfig {
     /** Transport identifier */
@@ -107,6 +117,7 @@ const logger = new Logger("SESSION");
  *
  * @fires Session#stateChange - Emitted when session state changes
  * @fires Session#close - Emitted when session is closed
+ * @fires Session#producer - Emitted when a new producer is created
  */
 export class Session extends EventEmitter {
     /** Communication bus for WebSocket messaging */
@@ -135,6 +146,10 @@ export class Session extends EventEmitter {
         camera: null,
         screen: null
     };
+    public readonly permissions: SessionPermissions = Object.seal({
+        recording: false,
+        transcription: false
+    });
     /** Parent channel containing this session */
     private readonly _channel: Channel;
     /** Recovery timeouts for failed consumers */
@@ -161,6 +176,19 @@ export class Session extends EventEmitter {
         this.setMaxListeners(config.CHANNEL_SIZE * 2);
     }
 
+    get startupData(): StartupData {
+        return {
+            availableFeatures: {
+                rtc: Boolean(this._channel.router),
+                recording: Boolean(this._channel.recorder && this.permissions.recording),
+                transcription: Boolean(this._channel.recorder && this.permissions.transcription)
+            },
+            // TODO could be a channelState type
+            isRecording: this._channel.recorder?.isRecording || false,
+            isTranscribing: this._channel.recorder?.isTranscribing || false
+        };
+    }
+
     get name(): string {
         return `${this._channel.name}:${this.id}@${this.remote}`;
     }
@@ -171,7 +199,25 @@ export class Session extends EventEmitter {
 
     set state(state: SESSION_STATE) {
         this._state = state;
+        /**
+         * @event Session#stateChange
+         * @type {{ state: SESSION_STATE }}
+         */
         this.emit("stateChange", state);
+    }
+
+    updatePermissions(permissions: SessionPermissions | undefined): void {
+        if (!permissions) {
+            return;
+        }
+        for (const key of Object.keys(this.permissions) as (keyof SessionPermissions)[]) {
+            const newVal = permissions[key];
+            if (newVal === undefined) {
+                continue;
+            }
+            this.permissions[key] = Boolean(permissions[key]);
+            logger.verbose(`Permissions updated: ${key} = ${this.permissions[key]}`);
+        }
     }
 
     async getProducerBitRates(): Promise<ProducerBitRates> {
@@ -323,15 +369,15 @@ export class Session extends EventEmitter {
                 this._ctsTransport?.close();
                 this._stcTransport?.close();
             });
-            this._clientCapabilities = (await this.bus!.request({
+            this._clientCapabilities = await this.bus!.request({
                 name: SERVER_REQUEST.INIT_TRANSPORTS,
                 payload: {
                     capabilities: this._channel.router!.rtpCapabilities,
-                    stcConfig: this._createTransportConfig(this._stcTransport),
-                    ctsConfig: this._createTransportConfig(this._ctsTransport),
+                    stcConfig: this._createTransportConfig(this._stcTransport!),
+                    ctsConfig: this._createTransportConfig(this._ctsTransport!),
                     producerOptionsByKind: config.rtc.producerOptionsByKind
                 }
-            })) as RtpCapabilities;
+            });
             await Promise.all([
                 this._ctsTransport.setMaxIncomingBitrate(config.MAX_BITRATE_IN),
                 this._stcTransport.setMaxOutgoingBitrate(config.MAX_BITRATE_OUT)
@@ -598,7 +644,10 @@ export class Session extends EventEmitter {
         }
     }
 
-    private async _handleRequest({ name, payload }: BusMessage): Promise<JSONSerializable | void> {
+    private async _handleRequest({
+        name,
+        payload
+    }: RequestMessage): Promise<JSONSerializable | void> {
         switch (name) {
             case CLIENT_REQUEST.CONNECT_STC_TRANSPORT: {
                 const { dtlsParameters } = payload;
@@ -638,7 +687,36 @@ export class Session extends EventEmitter {
                 logger.debug(`[${this.name}] producing ${type}: ${codec?.mimeType}`);
                 this._updateRemoteConsumers();
                 this._broadcastInfo();
+                /**
+                 * @event Session#producer
+                 * @type {{ type: StreamType, producer: Producer }}
+                 */
+                this.emit("producer", { type, producer });
                 return { id: producer.id };
+            }
+            case CLIENT_REQUEST.START_RECORDING: {
+                if (this.permissions.recording) {
+                    return this._channel.recorder?.start();
+                }
+                return;
+            }
+            case CLIENT_REQUEST.STOP_RECORDING: {
+                if (this.permissions.recording) {
+                    return this._channel.recorder?.stop();
+                }
+                return;
+            }
+            case CLIENT_REQUEST.START_TRANSCRIPTION: {
+                if (this.permissions.transcription) {
+                    return this._channel.recorder?.startTranscription();
+                }
+                return;
+            }
+            case CLIENT_REQUEST.STOP_TRANSCRIPTION: {
+                if (this.permissions.transcription) {
+                    return this._channel.recorder?.stopTranscription();
+                }
+                return;
             }
             default:
                 logger.warn(`[${this.name}] Unknown request type: ${name}`);
