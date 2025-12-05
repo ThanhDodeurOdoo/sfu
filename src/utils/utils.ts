@@ -12,7 +12,9 @@ const ASCII = {
         green: "\x1b[32m",
         yellow: "\x1b[33m",
         white: "\x1b[37m",
-        default: "\x1b[0m"
+        cyan: "\x1b[36m",
+        default: "\x1b[0m",
+        pink: "\x1b[35m"
     }
 } as const;
 
@@ -48,6 +50,52 @@ export interface ParseBodyOptions {
     json?: boolean;
 }
 
+/**
+ * @deprecated Use Promise.withResolvers() when available
+ */
+export class Deferred<T = unknown> {
+    private readonly _promise: Promise<T>;
+    public resolve!: (value: T | PromiseLike<T>) => void;
+    public reject!: (reason?: unknown) => void;
+
+    constructor() {
+        this._promise = new Promise<T>((resolve, reject) => {
+            this.resolve = resolve;
+            this.reject = reject;
+        });
+    }
+
+    public then<TResult1 = T, TResult2 = never>(
+        onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): Promise<TResult1 | TResult2> {
+        return this._promise.then(onfulfilled, onrejected);
+    }
+
+    public catch<TResult = never>(
+        onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
+    ): Promise<T | TResult> {
+        return this._promise.catch(onrejected);
+    }
+
+    public finally(onfinally?: (() => void) | null): Promise<T> {
+        return this._promise.finally(onfinally);
+    }
+}
+
+function getCallChain(depth: number = 8): string {
+    const stack = new Error().stack?.split("\n").slice(2, depth + 2) ?? [];
+    return stack
+        .map((line) => {
+            const match = line.trim().match(/^at\s+(.*?)\s+\(/);
+            return match ? match[1] : null;
+        })
+        .slice(1, depth + 1)
+        .filter(Boolean)
+        .reverse()
+        .join(" > ");
+}
+
 export class Logger {
     private readonly _name: string;
     private readonly _colorize: (text: string, color?: string) => string;
@@ -78,10 +126,13 @@ export class Logger {
         this._log(console.log, ":INFO:", text, ASCII.color.green);
     }
     debug(text: string): void {
-        this._log(console.log, ":DEBUG:", text);
+        this._log(console.log, ":DEBUG:", text, ASCII.color.pink);
     }
     verbose(text: string): void {
         this._log(console.log, ":VERBOSE:", text, ASCII.color.white);
+    }
+    trace(message: string, { depth = 8 }: { depth?: number } = {}): void {
+        this._log(console.log, ":TRACE:", `${getCallChain(depth)} ${message}`, ASCII.color.cyan);
     }
     private _generateTimeStamp(): string {
         const now = new Date();

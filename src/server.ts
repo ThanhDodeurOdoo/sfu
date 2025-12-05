@@ -1,4 +1,4 @@
-import * as rtc from "#src/services/rtc.ts";
+import * as resources from "#src/services/resources.ts";
 import * as http from "#src/services/http.ts";
 import * as auth from "#src/services/auth.ts";
 import { Logger } from "#src/utils/utils.ts";
@@ -8,15 +8,17 @@ const logger = new Logger("SERVER", { logLevel: "all" });
 
 async function run(): Promise<void> {
     auth.start();
-    await rtc.start();
+    await resources.start();
     await http.start();
     logger.info(`ready - PID: ${process.pid}`);
+    logger.debug(`TO IMPLEMENT: `);
+    logger.debug(`* get session labels from the odoo server`);
 }
 
 function cleanup(): void {
     Channel.closeAll();
     http.close();
-    rtc.close();
+    resources.close();
     logger.info("cleanup complete");
 }
 

@@ -11,6 +11,7 @@ the SFU and a [client bundle/library](#client-api-bundle) to connect to it.
 
 ## Prerequisites
 - [Node.js 22.16.0 (LTS)](https://nodejs.org/en/download)
+- [FFmpeg 8](https://ffmpeg.org/download.html) (if using the recording feature)
 
 ## Before deployment
 
@@ -53,6 +54,8 @@ The available environment variables are:
 - **MAX_BITRATE_OUT**: if set, limits the outgoing bitrate per session (user), defaults to 10mbps
 - **MAX_VIDEO_BITRATE**: if set, defines the `maxBitrate` of the highest encoding layer (simulcast), defaults to 4mbps
 - **CHANNEL_SIZE**: the maximum amount of users per channel, defaults to 100
+- **RECORDING**: enables the recording feature, defaults to false
+- **RECORDING_PATH**: the path where the recordings will be saved, defaults to `${tmpDir}/recordings`.
 - **WORKER_LOG_LEVEL**: "none" | "error" | "warn" | "debug", will only work if `DEBUG` is properly set.
 - **LOG_LEVEL**: "none" | "error" | "warn" | "info" | "debug" | "verbose"
 - **LOG_TIMESTAMP**: adds a timestamp to the log lines, defaults to true, to disable it, set to "disable", "false", "none", "no" or "0"
