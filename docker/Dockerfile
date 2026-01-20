@@ -1,4 +1,4 @@
-FROM node:23.11.0-slim
+FROM node:24.13.0-slim
 
 LABEL maintainer="tso" \
       description="Odoo SFU tso docker config" \
