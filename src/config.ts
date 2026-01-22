@@ -1,7 +1,7 @@
 import os from "node:os";
 
 import type {
-    RtpCodecCapability,
+    RouterRtpCodecCapability,
     WorkerSettings,
     WebRtcServerOptions
 } from "mediasoup/node/lib/types";
@@ -228,7 +228,9 @@ export interface RtcConfig {
 export const rtc: RtcConfig = Object.freeze({
     // https://mediasoup.org/documentation/v3/mediasoup/api/#WorkerSettings
     workerSettings: {
-        logLevel: WORKER_LOG_LEVEL
+        logLevel: WORKER_LOG_LEVEL,
+        rtcMinPort: RTC_MIN_PORT,
+        rtcMaxPort: RTC_MAX_PORT
     },
     // https://mediasoup.org/documentation/v3/mediasoup/api/#WebRtcServer-dictionaries
     rtcServerOptions: {
@@ -291,7 +293,7 @@ export const rtc: RtcConfig = Object.freeze({
  * and recommend the same for any WebRTC endpoint.
  * https://datatracker.ietf.org/doc/html/rfc7874#section-3
  */
-export const audioCodecs: Record<string, RtpCodecCapability> = Object.freeze({
+export const audioCodecs: Record<string, RouterRtpCodecCapability> = Object.freeze({
     opus: {
         // https://datatracker.ietf.org/doc/html/rfc7587
         kind: "audio",
@@ -322,7 +324,7 @@ export const audioCodecs: Record<string, RtpCodecCapability> = Object.freeze({
  * and recommend the same for any WebRTC endpoint.
  * https://datatracker.ietf.org/doc/html/rfc7742#section-5
  */
-export const videoCodecs: Record<string, RtpCodecCapability> = Object.freeze({
+export const videoCodecs: Record<string, RouterRtpCodecCapability> = Object.freeze({
     VP8: {
         // https://datatracker.ietf.org/doc/html/rfc7741
         kind: "video",
